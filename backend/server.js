@@ -74,10 +74,18 @@ app.get("/api/hello", (req, res) => {
   res.json({ message: "Hello dal backend!" });
 });
 
-// Catch-all SPA compatibile con Express 5+
+// Serve file statici dal frontend
+app.use(express.static(path.join(__dirname, "../dist")));
+
+// Catch-all per SPA, solo se il file esiste
 app.get("/*", (req, res) => {
-  res.sendFile(path.resolve(__dirname, "../dist/index.html"));
+  res.sendFile(path.join(__dirname, "../dist/index.html"), (err) => {
+    if (err) {
+      res.status(500).send(err);
+    }
+  });
 });
+
 
 // Porta dinamica
 const PORT = process.env.PORT || 3000;
