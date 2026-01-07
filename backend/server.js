@@ -11,41 +11,44 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const server = http.createServer(app);
-const io = new SocketIO(server, { cors: { origin: "*" } });
+const io = new SocketIO(server, {
+  cors: {
+    origin: "*",
+  },
+});
 
 // Middleware
 app.use(cors());
 app.use(express.json());
 
-// Serve frontend build
+// Serve frontend static (dist) corretto rispetto alla tua struttura
 app.use(express.static(path.join(__dirname, "../dist")));
 
-// Socket.io events
+// Socket.io example
 io.on("connection", (socket) => {
-  console.log("New client connected:", socket.id);
+  console.log("Nuovo client connesso:", socket.id);
 
   socket.on("ping", (data) => {
-    console.log("Ping received:", data);
-    socket.emit("pong", { msg: "Pong from server!" });
+    socket.emit("pong", { msg: "Pong dal server!" });
   });
 
   socket.on("disconnect", () => {
-    console.log("Client disconnected:", socket.id);
+    console.log("Client disconnesso:", socket.id);
   });
 });
 
-// Example API
+// API example
 app.get("/api/hello", (req, res) => {
-  res.json({ message: "Hello from backend!" });
+  res.json({ message: "Hello dal backend!" });
 });
 
-// Catch-all SPA handler compatibile Express 5
-app.get(/.*/, (req, res) => {
+// Catch-all SPA
+app.get("*", (req, res) => {
   res.sendFile(path.join(__dirname, "../dist/index.html"));
 });
 
-// Start server
+// Porta dinamica Railway
 const PORT = process.env.PORT || 3000;
-server.listen(PORT,"0.0.0.0", () => {
-  console.log(`Backend running on http://localhost:${PORT}`);
+server.listen(PORT, () => {
+  console.log(`Backend in ascolto su http://localhost:${PORT}`);
 });
