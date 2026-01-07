@@ -40,38 +40,6 @@ io.on("connection", (socket) => {
   });
 });
 
-// ... (resto del tuo codice invariato fino a io.on("connection"))
-
-io.on("connection", (socket) => {
-  console.log("Nuovo client connesso:", socket.id);
-
-  // --- AGGIUNGI QUESTO BLOCCO ---
-  // Riceve la posizione GPS dal telefono e la trasmette a tutti (PC incluso)
-  socket.on("update-location", (data) => {
-    console.log("📍 GPS Mobile ricevuto dal client:", socket.id, data);
-    
-    const entry = {
-      node: "mobile-gps", // Identifichiamo che la fonte è il telefono
-      pm25: data.pm25 || 0,
-      pm10: data.pm10 || 0,
-      lat: data.lat,
-      lon: data.lon,
-      timestamp: data.timestamp || Date.now()
-    };
-
-    // Opzionale: salva nel database/storico se vuoi che il percorso resti al refresh
-    // sensorDataHistory.push(entry); 
-
-    // Trasmetti a tutti i client connessi
-    io.emit("new-data", entry);
-  });
-  // ------------------------------
-
-  socket.on("disconnect", () => {
-    console.log("Client disconnesso:", socket.id);
-  });
-});
-
 // ====================== API ======================
 
 // Endpoint per ricevere dati dal nodo ESP32

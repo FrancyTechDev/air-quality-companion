@@ -1,42 +1,27 @@
-import { useSensorData, useGPSTracking } from "@/hooks/useAirQuality"; // Assicurati del percorso corretto
-import MapSection from "@/components/MapSection";
-import { Button } from "@/components/ui/button"; // Se usi Shadcn
-import { LocateFixed, LocateOff } from "lucide-react";
+import { Toaster } from "@/components/ui/toaster";
+import { Toaster as Sonner } from "@/components/ui/sonner";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
+import Index from "./pages/Index";
+import NotFound from "./pages/NotFound";
 
-const Index = () => {
-  // 1. Inizializza i dati e ottieni il riferimento al socket
-  const { currentData, history, isConnected, socket } = useSensorData();
+const queryClient = new QueryClient();
 
-  // 2. Passa il socket al tracker GPS
-  const { isTracking, startTracking, stopTracking } = useGPSTracking(socket, currentData.pm25);
+const App = () => (
+  <QueryClientProvider client={queryClient}>
+    <TooltipProvider>
+      <Toaster />
+      <Sonner />
+      <BrowserRouter>
+        <Routes>
+          <Route path="/" element={<Index />} />
+          {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+          <Route path="*" element={<NotFound />} />
+        </Routes>
+      </BrowserRouter>
+    </TooltipProvider>
+  </QueryClientProvider>
+);
 
-  return (
-    <div className="min-h-screen bg-background p-4 lg:p-8">
-      <div className="max-w-7xl mx-auto space-y-6">
-        
-        {/* Pulsante per attivare il GPS dal telefono */}
-        <div className="flex justify-end">
-          <Button 
-            variant={isTracking ? "destructive" : "default"}
-            onClick={isTracking ? stopTracking : startTracking}
-            className="gap-2 shadow-lg"
-          >
-            {isTracking ? <LocateOff size={18} /> : <LocateFixed size={18} />}
-            {isTracking ? "Spegni GPS Mobile" : "Attiva GPS Mobile"}
-          </Button>
-        </div>
-
-        {/* Mappa */}
-        <MapSection 
-          currentData={currentData} 
-          history={history} 
-          isConnected={isConnected} 
-        />
-
-        {/* Altri componenti della dashboard... */}
-      </div>
-    </div>
-  );
-};
-
-export default Index;
+export default App;
