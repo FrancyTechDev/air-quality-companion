@@ -35,16 +35,20 @@ const parseDate = (ts: number | string | Date) => {
 const AnalyticsSection = ({ history, currentData }: AnalyticsSectionProps) => {
   const chartData = useMemo(() => {
     return history.slice(-30).map((d, i) => {
-      const dateObj = parseDate(d.timestamp);
+      // Se timestamp è in secondi (10 cifre), moltiplica per 1000
+      const tsNumber = typeof d.timestamp === 'number' ? d.timestamp : Date.parse(d.timestamp);
+      const dateObj = tsNumber < 100000000000 ? new Date(tsNumber * 1000) : new Date(tsNumber);
+
       return {
-        time: format(dateObj, 'HH:mm'),                // Solo ore:minuti per l'asse X
-        fullDate: format(dateObj, "d MMM yyyy HH:mm:ss"), // Tooltip completo
+        time: format(dateObj, 'HH:mm'),
+        fullDate: format(dateObj, 'd MMM yyyy HH:mm:ss'),
         pm25: d.pm25,
         pm10: d.pm10,
         index: i
       };
     });
   }, [history]);
+
 
   const averages = useMemo(() => {
     if (history.length === 0) return { pm25: 0, pm10: 0 };
