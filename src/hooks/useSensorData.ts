@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { SensorData } from '@/lib/airQuality';
+import { toDate } from '../utils/dateUtils';
 import { io, Socket } from 'socket.io-client';
 
 const SERVER_URL = "https://air-quality-companion.onrender.com"; 
@@ -29,7 +30,7 @@ export const useSensorData = () => {
           pm10: Number(item.pm10),
           lat: Number(item.lat),
           lng: Number(item.lon), 
-          timestamp: new Date(item.timestamp)
+          timestamp: toDate(item.timestamp)
         }));
 
         setHistory(formattedHistory);
@@ -60,7 +61,7 @@ export const useSensorData = () => {
         pm10: Number(payload.pm10),
         lat: Number(payload.lat),
         lng: Number(payload.lon), 
-        timestamp: new Date(payload.timestamp)
+        timestamp: toDate(payload.timestamp)
       };
 
       setCurrentData(newData);
