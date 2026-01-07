@@ -12,7 +12,7 @@ import {
   AreaChart,
   Legend
 } from 'recharts';
-import { BarChart3, TrendingUp, Clock } from 'lucide-react';
+import { BarChart3, TrendingUp, Clock, Download } from 'lucide-react';
 import { SensorData, getAirQualityInfo } from '@/lib/airQuality';
 import { format } from 'date-fns';
 
@@ -22,15 +22,22 @@ interface AnalyticsSectionProps {
 }
 
 const AnalyticsSection = ({ history, currentData }: AnalyticsSectionProps) => {
+  // 1. Calcolo dati per i grafici con formattazione oraria sicura
   const chartData = useMemo(() => {
-    return history.slice(-30).map((d, i) => ({
-      time: format(d.timestamp, 'HH:mm'),
-      pm25: d.pm25,
-      pm10: d.pm10,
-      index: i
-    }));
+    return history.slice(-30).map((d, i) => {
+      // Assicura che il timestamp sia un oggetto Date valido per il fuso orario locale
+      const dateObj = new Date(d.timestamp);
+      return {
+        time: format(dateObj, 'HH:mm'), // Formato ore:minuti per il grafico
+        fullDate: dateObj, // Manteniamo l'oggetto completo se servisse
+        pm25: d.pm25,
+        pm10: d.pm10,
+        index: i
+      };
+    });
   }, [history]);
 
+  // 2. Calcolo medie
   const averages = useMemo(() => {
     if (history.length === 0) return { pm25: 0, pm10: 0 };
     const sum = history.reduce(
@@ -43,6 +50,38 @@ const AnalyticsSection = ({ history, currentData }: AnalyticsSectionProps) => {
     };
   }, [history]);
 
+  // 3. Funzione per scaricare i dati CSV
+  const handleDownload = () => {
+    if (!history || history.length === 0) return;
+
+    // Intestazioni CSV
+    const headers = ['Data', 'Ora', 'PM2.5 (µg/m³)', 'PM10 (µg/m³)'];
+    
+    // Righe CSV
+    const rows = history.map(d => {
+      const date = new Date(d.timestamp);
+      return [
+        format(date, 'yyyy-MM-dd'),
+        format(date, 'HH:mm:ss'),
+        d.pm25,
+        d.pm10
+      ].join(',');
+    });
+
+    // Unione contenuto
+    const csvContent = [headers.join(','), ...rows].join('\n');
+
+    // Creazione Blob e Link per il download
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `air_quality_history_${format(new Date(), 'yyyyMMdd_HHmm')}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const airQuality = getAirQualityInfo(currentData.pm25);
 
   return (
@@ -52,46 +91,57 @@ const AnalyticsSection = ({ history, currentData }: AnalyticsSectionProps) => {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}
     >
-      {/* Header */}
-      <div className="flex items-center gap-3">
-        <div className="p-3 rounded-2xl bg-primary/10">
-          <BarChart3 className="w-6 h-6 text-primary" />
+      {/* Header con pulsante Download */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="p-3 rounded-2xl bg-primary/10">
+            <BarChart3 className="w-6 h-6 text-primary" />
+          </div>
+          <div>
+            <h2 className="text-xl font-semibold text-gradient">Analytics Dashboard</h2>
+            <p className="text-sm text-muted-foreground">Analisi storica della qualità dell'aria</p>
+          </div>
         </div>
-        <div>
-          <h2 className="text-xl font-semibold text-gradient">Analytics Dashboard</h2>
-          <p className="text-sm text-muted-foreground">Analisi storica della qualità dell'aria</p>
-        </div>
+
+        <button
+          onClick={handleDownload}
+          className="flex items-center gap-2 px-4 py-2 text-sm font-medium transition-colors border rounded-lg hover:bg-secondary/20 border-border bg-card/50 text-foreground"
+          title="Scarica storico dati"
+        >
+          <Download className="w-4 h-4" />
+          <span className="hidden sm:inline">Export CSV</span>
+        </button>
       </div>
 
       {/* Stats Row */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="glass-panel p-4">
-          <p className="text-xs text-muted-foreground mb-1">PM2.5 Attuale</p>
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+        <div className="p-4 glass-panel">
+          <p className="mb-1 text-xs text-muted-foreground">PM2.5 Attuale</p>
           <p className="text-2xl font-bold" style={{ color: airQuality.color }}>
             {currentData.pm25}
           </p>
-          <p className="text-xs text-muted-foreground mt-1">µg/m³</p>
+          <p className="mt-1 text-xs text-muted-foreground">µg/m³</p>
         </div>
-        <div className="glass-panel p-4">
-          <p className="text-xs text-muted-foreground mb-1">PM10 Attuale</p>
+        <div className="p-4 glass-panel">
+          <p className="mb-1 text-xs text-muted-foreground">PM10 Attuale</p>
           <p className="text-2xl font-bold text-secondary">
             {currentData.pm10}
           </p>
-          <p className="text-xs text-muted-foreground mt-1">µg/m³</p>
+          <p className="mt-1 text-xs text-muted-foreground">µg/m³</p>
         </div>
-        <div className="glass-panel p-4">
-          <p className="text-xs text-muted-foreground mb-1">Media PM2.5</p>
+        <div className="p-4 glass-panel">
+          <p className="mb-1 text-xs text-muted-foreground">Media PM2.5</p>
           <p className="text-2xl font-bold text-foreground">
             {averages.pm25}
           </p>
-          <p className="text-xs text-muted-foreground mt-1">µg/m³</p>
+          <p className="mt-1 text-xs text-muted-foreground">µg/m³</p>
         </div>
-        <div className="glass-panel p-4">
-          <p className="text-xs text-muted-foreground mb-1">Media PM10</p>
+        <div className="p-4 glass-panel">
+          <p className="mb-1 text-xs text-muted-foreground">Media PM10</p>
           <p className="text-2xl font-bold text-foreground">
             {averages.pm10}
           </p>
-          <p className="text-xs text-muted-foreground mt-1">µg/m³</p>
+          <p className="mt-1 text-xs text-muted-foreground">µg/m³</p>
         </div>
       </div>
 
@@ -121,6 +171,7 @@ const AnalyticsSection = ({ history, currentData }: AnalyticsSectionProps) => {
               dataKey="time" 
               stroke="hsl(var(--muted-foreground))"
               fontSize={12}
+              tickMargin={10}
             />
             <YAxis 
               stroke="hsl(var(--muted-foreground))"
@@ -162,6 +213,7 @@ const AnalyticsSection = ({ history, currentData }: AnalyticsSectionProps) => {
               dataKey="time" 
               stroke="hsl(var(--muted-foreground))"
               fontSize={12}
+              tickMargin={10}
             />
             <YAxis 
               stroke="hsl(var(--muted-foreground))"
