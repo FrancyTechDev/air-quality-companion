@@ -74,9 +74,9 @@ app.get("/api/hello", (req, res) => {
   res.json({ message: "Hello dal backend!" });
 });
 
-// Catch-all SPA
-app.get("*", (req, res) => {
-  res.sendFile(path.join(__dirname, "../dist/index.html"));
+// Catch-all SPA compatibile con Express 5+
+app.get("/*", (req, res) => {
+  res.sendFile(path.resolve(__dirname, "../dist/index.html"));
 });
 
 // Porta dinamica
