@@ -61,7 +61,7 @@ const AnalyticsSection = ({ history, currentData }: AnalyticsSectionProps) => {
       }
 
       return {
-        time: format(dateObj, 'HH:mm'),
+        time: dateObj.getTime(),
         fullDate: format(dateObj, "d MMM yyyy, HH:mm:ss", { locale: it }),
         pm25: d.pm25,
         pm10: d.pm10,
@@ -212,9 +212,14 @@ const AnalyticsSection = ({ history, currentData }: AnalyticsSectionProps) => {
             <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
             <XAxis 
               dataKey="time" 
+              type="number"
+              scale="time"
               stroke="hsl(var(--muted-foreground))"
               fontSize={12}
               tickMargin={10}
+                tickFormatter={(timestamp) =>
+                  new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                }
             />
             <YAxis 
               stroke="hsl(var(--muted-foreground))"
