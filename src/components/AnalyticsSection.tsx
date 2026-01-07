@@ -14,7 +14,8 @@ import {
 } from 'recharts';
 import { BarChart3, TrendingUp, Clock, Download } from 'lucide-react';
 import { SensorData, getAirQualityInfo } from '@/lib/airQuality';
-import { format } from 'date-fns';
+import { format, isValid } from 'date-fns';
+import { it } from 'date-fns/locale';
 
 interface AnalyticsSectionProps {
   history: SensorData[];
@@ -22,14 +23,46 @@ interface AnalyticsSectionProps {
 }
 
 const AnalyticsSection = ({ history, currentData }: AnalyticsSectionProps) => {
-  // 1. Calcolo dati per i grafici con formattazione oraria sicura
+  
+  // Funzione helper per gestire timestamp sia in secondi che in millisecondi
+  const parseDate = (ts: string | number) => {
+    if (!ts) return new Date();
+    
+    // Se è già un oggetto Date (caso raro ma possibile se i dati sono pre-processati)
+    if (ts instanceof Date) return ts;
+
+    // Se è un numero
+    if (typeof ts === 'number') {
+      // Se il numero è "piccolo" (es. < 100 miliardi), è probabile che siano SECONDI (Unix timestamp)
+      // I millisecondi attuali sono circa 1.7 trilioni (13 cifre)
+      if (ts < 100000000000) { 
+        return new Date(ts * 1000);
+      }
+      return new Date(ts);
+    }
+
+    // Se è una stringa ISO, Date la gestisce
+    return new Date(ts);
+  };
+
   const chartData = useMemo(() => {
     return history.slice(-30).map((d, i) => {
-      // Assicura che il timestamp sia un oggetto Date valido per il fuso orario locale
-      const dateObj = new Date(d.timestamp);
+      const dateObj = parseDate(d.timestamp);
+      
+      // Fallback se la data non è valida
+      if (!isValid(dateObj)) {
+        return {
+          time: 'Err',
+          fullDate: 'Data non valida',
+          pm25: d.pm25,
+          pm10: d.pm10,
+          index: i
+        };
+      }
+
       return {
-        time: format(dateObj, 'HH:mm'), // Formato ore:minuti per il grafico
-        fullDate: dateObj, // Manteniamo l'oggetto completo se servisse
+        time: format(dateObj, 'HH:mm'),
+        fullDate: format(dateObj, "d MMM yyyy, HH:mm:ss", { locale: it }),
         pm25: d.pm25,
         pm10: d.pm10,
         index: i
@@ -37,7 +70,6 @@ const AnalyticsSection = ({ history, currentData }: AnalyticsSectionProps) => {
     });
   }, [history]);
 
-  // 2. Calcolo medie
   const averages = useMemo(() => {
     if (history.length === 0) return { pm25: 0, pm10: 0 };
     const sum = history.reduce(
@@ -50,16 +82,15 @@ const AnalyticsSection = ({ history, currentData }: AnalyticsSectionProps) => {
     };
   }, [history]);
 
-  // 3. Funzione per scaricare i dati CSV
   const handleDownload = () => {
     if (!history || history.length === 0) return;
 
-    // Intestazioni CSV
     const headers = ['Data', 'Ora', 'PM2.5 (µg/m³)', 'PM10 (µg/m³)'];
     
-    // Righe CSV
     const rows = history.map(d => {
-      const date = new Date(d.timestamp);
+      const date = parseDate(d.timestamp);
+      if (!isValid(date)) return ['Data Errata', '-', d.pm25, d.pm10].join(',');
+
       return [
         format(date, 'yyyy-MM-dd'),
         format(date, 'HH:mm:ss'),
@@ -68,21 +99,37 @@ const AnalyticsSection = ({ history, currentData }: AnalyticsSectionProps) => {
       ].join(',');
     });
 
-    // Unione contenuto
     const csvContent = [headers.join(','), ...rows].join('\n');
-
-    // Creazione Blob e Link per il download
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.setAttribute('download', `air_quality_history_${format(new Date(), 'yyyyMMdd_HHmm')}.csv`);
+    link.setAttribute('download', `air_quality_export_${format(new Date(), 'yyyyMMdd_HHmm')}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
   };
 
   const airQuality = getAirQualityInfo(currentData.pm25);
+
+  // Custom Tooltip per mostrare la data completa
+  const CustomTooltip = ({ active, payload, label }: any) => {
+    if (active && payload && payload.length) {
+      return (
+        <div className="p-3 border rounded-xl bg-card border-border shadow-xl">
+          <p className="mb-2 text-sm font-medium text-foreground">
+            {payload[0].payload.fullDate}
+          </p>
+          {payload.map((entry: any, index: number) => (
+            <p key={index} className="text-sm" style={{ color: entry.color }}>
+              {entry.name}: <span className="font-bold">{entry.value}</span> µg/m³
+            </p>
+          ))}
+        </div>
+      );
+    }
+    return null;
+  };
 
   return (
     <motion.div
@@ -91,7 +138,6 @@ const AnalyticsSection = ({ history, currentData }: AnalyticsSectionProps) => {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}
     >
-      {/* Header con pulsante Download */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="p-3 rounded-2xl bg-primary/10">
@@ -106,14 +152,12 @@ const AnalyticsSection = ({ history, currentData }: AnalyticsSectionProps) => {
         <button
           onClick={handleDownload}
           className="flex items-center gap-2 px-4 py-2 text-sm font-medium transition-colors border rounded-lg hover:bg-secondary/20 border-border bg-card/50 text-foreground"
-          title="Scarica storico dati"
         >
           <Download className="w-4 h-4" />
           <span className="hidden sm:inline">Export CSV</span>
         </button>
       </div>
 
-      {/* Stats Row */}
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         <div className="p-4 glass-panel">
           <p className="mb-1 text-xs text-muted-foreground">PM2.5 Attuale</p>
@@ -145,7 +189,6 @@ const AnalyticsSection = ({ history, currentData }: AnalyticsSectionProps) => {
         </div>
       </div>
 
-      {/* Real-time Chart */}
       <div className="chart-container">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-2">
@@ -178,15 +221,7 @@ const AnalyticsSection = ({ history, currentData }: AnalyticsSectionProps) => {
               fontSize={12}
               domain={[0, 'auto']}
             />
-            <Tooltip
-              contentStyle={{
-                backgroundColor: 'hsl(var(--card))',
-                border: '1px solid hsl(var(--border))',
-                borderRadius: '0.75rem',
-                boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)'
-              }}
-              labelStyle={{ color: 'hsl(var(--foreground))' }}
-            />
+            <Tooltip content={<CustomTooltip />} />
             <Area
               type="monotone"
               dataKey="pm25"
@@ -199,7 +234,6 @@ const AnalyticsSection = ({ history, currentData }: AnalyticsSectionProps) => {
         </ResponsiveContainer>
       </div>
 
-      {/* Comparison Chart */}
       <div className="chart-container">
         <div className="flex items-center gap-2 mb-6">
           <BarChart3 className="w-5 h-5 text-secondary" />
@@ -219,13 +253,7 @@ const AnalyticsSection = ({ history, currentData }: AnalyticsSectionProps) => {
               stroke="hsl(var(--muted-foreground))"
               fontSize={12}
             />
-            <Tooltip
-              contentStyle={{
-                backgroundColor: 'hsl(var(--card))',
-                border: '1px solid hsl(var(--border))',
-                borderRadius: '0.75rem'
-              }}
-            />
+            <Tooltip content={<CustomTooltip />} />
             <Legend />
             <Line
               type="monotone"
