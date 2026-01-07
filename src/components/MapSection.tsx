@@ -2,24 +2,24 @@ import { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { MapPin, Navigation, Radio, Wind } from 'lucide-react';
+import { MapPin, Radio, Wind, Satellite } from 'lucide-react'; // Aggiunta icona Satellite
 import { SensorData, getMarkerColor, getAirQualityInfo } from '@/lib/airQuality';
 
-// --- UTILS PER IL CALCOLO DELLA DISTANZA (Haversine Formula) ---
-// Calcola la distanza in metri tra due coordinate in modo scientifico
-function calculateDistanceMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
-  const R = 6371000; // Raggio della Terra in metri
+// --- UTILS MATEMATICHE (Scientifiche) ---
+
+// Formula dell'emisenoverso (Haversine) per calcolare la distanza in metri
+function distanceMeters(lat1: number, lng1: number, lat2: number, lng2: number) {
+  const R = 6371000; // Raggio Terra in metri
   const dLat = (lat2 - lat1) * Math.PI / 180;
   const dLng = (lng2 - lng1) * Math.PI / 180;
-  
-  const a = 
-    Math.sin(dLat/2) ** 2 +
-    Math.cos(lat1 * Math.PI/180) *
-    Math.cos(lat2 * Math.PI/180) *
-    Math.sin(dLng/2) ** 2;
-    
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
+
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * Math.PI / 180) *
+    Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLng / 2) ** 2;
+
+  return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
 interface MapSectionProps {
@@ -29,86 +29,125 @@ interface MapSectionProps {
 }
 
 const MapSection = ({ currentData, history, isConnected }: MapSectionProps) => {
+  // --- REFS STRUTTURALI ---
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   
-  // Refs per elementi persistenti standard
+  // Refs Rendering
   const currentMarkerRef = useRef<L.CircleMarker | null>(null);
   const pulseMarkerRef = useRef<L.CircleMarker | null>(null);
   const pathRef = useRef<L.Polyline | null>(null);
 
-  // --- ARCHITETTURA PARTICLES ---
-  // Non usiamo lo state per evitare re-render inutili.
-  // Memorizziamo i marker attivi per pulirli all'unmount.
+  // --- REFS PARTICLES & LOGICA (User Requested) ---
   const particlesRef = useRef<L.CircleMarker[]>([]);
-  
-  // Ref per logica di rilascio (Throttle spaziale/temporale)
-  const lastDropTimeRef = useRef<number>(0);
-  const lastDropPosRef = useRef<{ lat: number; lng: number } | null>(null);
+  const lastDropRef = useRef<number>(0);
+  const lastPositionRef = useRef<{ lat: number; lng: number } | null>(null);
+  const gpsAvailableRef = useRef<boolean>(false);
+  const gpsCoordsRef = useRef<{ lat: number; lng: number } | null>(null);
 
+  // --- STATE ---
   const [mapReady, setMapReady] = useState(false);
+  const [usingGPS, setUsingGPS] = useState(false); // Stato per UI feedback
+
   const airQuality = getAirQualityInfo(currentData.pm25);
 
-  // 1. Inizializzazione Mappa (Eseguito una sola volta)
+  // 1️⃣ GESTIONE GEOLOCATION (Browser API)
+  useEffect(() => {
+    if (!navigator.geolocation) {
+      console.warn("Geolocalizzazione non supportata dal browser");
+      return;
+    }
+
+    const watchId = navigator.geolocation.watchPosition(
+      (position) => {
+        const { latitude, longitude } = position.coords;
+        
+        // Salviamo nel ref per uso immediato nel loop grafico
+        gpsCoordsRef.current = { lat: latitude, lng: longitude };
+        gpsAvailableRef.current = true;
+        setUsingGPS(true); // Aggiorna UI
+      },
+      (error) => {
+        console.error("Errore GPS:", error.message);
+        gpsAvailableRef.current = false;
+        setUsingGPS(false);
+      },
+      {
+        enableHighAccuracy: true,
+        maximumAge: 5000,
+        timeout: 10000
+      }
+    );
+
+    return () => navigator.geolocation.clearWatch(watchId);
+  }, []);
+
+  // 2️⃣ INIZIALIZZAZIONE MAPPA
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return;
 
-    // Setup base della mappa
+    // Coordinate iniziali (fallback Milano)
+    const initLat = currentData.lat || 45.4642;
+    const initLng = currentData.lng || 9.19;
+
     mapRef.current = L.map(mapContainerRef.current, {
-      center: [currentData.lat || 45.4642, currentData.lng || 9.19],
-      zoom: 16, // Zoom leggermente più stretto per apprezzare i dettagli
+      center: [initLat, initLng],
+      zoom: 16,
       zoomControl: false,
-      preferCanvas: true // Ottimizzazione performance rendering
+      preferCanvas: true
     });
 
-    // Dark tile layer professionale
+    // Dark Technical Layer
     L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
       attribution: '&copy; OpenStreetMap &copy; CARTO',
       maxZoom: 19
     }).addTo(mapRef.current);
 
     L.control.zoom({ position: 'bottomright' }).addTo(mapRef.current);
-
     setMapReady(true);
 
-    // Cleanup all'unmount
     return () => {
       if (mapRef.current) {
         mapRef.current.remove();
         mapRef.current = null;
       }
-      // Pulisci eventuali timeout o riferimenti residui
       particlesRef.current = [];
     };
   }, []);
 
-  // 2. Gestione Aggiornamenti Dati (Marker Corrente + Logica Particles)
+  // 3️⃣ LOOP PRINCIPALE: MARKER, PARTICELLE E PATH
   useEffect(() => {
     if (!mapRef.current || !mapReady) return;
 
-    // Coordinate attuali (con fallback se i dati sono sporchi all'avvio)
-    const lat = currentData.lat || 45.4642;
-    const lng = currentData.lng || 9.19;
-    const color = getMarkerColor(currentData.pm25);
+    // DETERMINA LA POSIZIONE REALE DA USARE
+    // Se il GPS browser è attivo, usa quello, altrimenti i dati del sensore (MQTT/API)
+    const effectiveLat = gpsAvailableRef.current && gpsCoordsRef.current 
+      ? gpsCoordsRef.current.lat 
+      : (currentData.lat || 45.4642);
 
-    // --- A. GESTIONE MARKER CORRENTE (PULSATING) ---
+    const effectiveLng = gpsAvailableRef.current && gpsCoordsRef.current 
+      ? gpsCoordsRef.current.lng 
+      : (currentData.lng || 9.19);
+
+    const color = getMarkerColor(currentData.pm25);
+    const now = Date.now();
+
+    // --- A. GESTIONE MARKER PRINCIPALE ---
     if (currentMarkerRef.current) {
-      currentMarkerRef.current.setLatLng([lat, lng]);
+      currentMarkerRef.current.setLatLng([effectiveLat, effectiveLng]);
       currentMarkerRef.current.setStyle({ color, fillColor: color });
     } else {
-      // Main Position Dot
-      currentMarkerRef.current = L.circleMarker([lat, lng], {
-        radius: 8, // Leggermente più piccolo, più preciso
+      currentMarkerRef.current = L.circleMarker([effectiveLat, effectiveLng], {
+        radius: 8,
         fillColor: color,
-        color: '#ffffff', // Bordo bianco per contrasto sulla dark map
+        color: '#ffffff',
         weight: 2,
         opacity: 1,
         fillOpacity: 1
       }).addTo(mapRef.current);
 
-      // Pulse Effect Ring
-      pulseMarkerRef.current = L.circleMarker([lat, lng], {
-        radius: 15,
+      pulseMarkerRef.current = L.circleMarker([effectiveLat, effectiveLng], {
+        radius: 20,
         fillColor: color,
         color: color,
         weight: 0,
@@ -116,68 +155,54 @@ const MapSection = ({ currentData, history, isConnected }: MapSectionProps) => {
         fillOpacity: 0.2
       }).addTo(mapRef.current);
     }
-
-    // Aggiorna posizione del pulse marker
+    
     if (pulseMarkerRef.current) {
-        pulseMarkerRef.current.setLatLng([lat, lng]);
+        pulseMarkerRef.current.setLatLng([effectiveLat, effectiveLng]);
         pulseMarkerRef.current.setStyle({ fillColor: color, color: color });
     }
 
-    // --- B. LOGICA "PARTICLES" (CAMPIONAMENTO SPAZIO-TEMPORALE) ---
-    const now = Date.now();
-    const DROP_INTERVAL_MS = 5000; // Minimo 5 secondi tra i drop
-    const MIN_DISTANCE_METERS = 5; // Minimo 5 metri di spostamento
-    const PARTICLE_TTL_MS = 120000; // 2 Minuti di vita per ogni particella
-
-    const shouldDropParticle = () => {
-      // Se è il primo punto in assoluto
-      if (!lastDropPosRef.current) return true;
-
-      // 1. Controllo Tempo
-      const timeElapsed = now - lastDropTimeRef.current;
-      if (timeElapsed < DROP_INTERVAL_MS) return false;
-
-      // 2. Controllo Distanza
-      const dist = calculateDistanceMeters(
-        lastDropPosRef.current.lat,
-        lastDropPosRef.current.lng,
-        lat,
-        lng
+    // --- B. LOGICA PARTICLES (Core Logic Richiesta) ---
+    // Verifica se abbiamo una posizione precedente valida per calcolare lo spostamento
+    if (lastPositionRef.current) {
+      const dist = distanceMeters(
+        lastPositionRef.current.lat,
+        lastPositionRef.current.lng,
+        effectiveLat,
+        effectiveLng
       );
-      
-      return dist >= MIN_DISTANCE_METERS;
-    };
 
-    if (shouldDropParticle()) {
-      // Creazione Particle
-      const particle = L.circleMarker([lat, lng], {
-        radius: 4, // Molto piccolo, discreto
-        color: color,
-        fillColor: color,
-        weight: 0, // Nessun bordo
-        fillOpacity: 0.6, // Semi-trasparente
-        className: 'leaflet-particle-fade' // Hook per eventuale CSS
-      }).addTo(mapRef.current);
+      // CONDIZIONE DI RILASCIO: Spostamento > 3m E Tempo > 10s (o 5s se veloce)
+      if (dist > 3 && now - lastDropRef.current > 10000) {
+        
+        // Creazione particella persistente
+        const particle = L.circleMarker([effectiveLat, effectiveLng], {
+          radius: 6,
+          fillColor: color,
+          color: color, // Bordo dello stesso colore
+          weight: 1,
+          opacity: 0.8,
+          fillOpacity: 0.6,
+          className: 'leaflet-particle-tech' // Classe CSS opzionale
+        }).addTo(mapRef.current);
 
-      // Aggiungi ai riferimenti
-      particlesRef.current.push(particle);
-      
-      // Aggiorna riferimenti logici
-      lastDropTimeRef.current = now;
-      lastDropPosRef.current = { lat, lng };
+        particlesRef.current.push(particle);
+        lastDropRef.current = now;
 
-      // IMPOSTA IL DECADIMENTO (TTL)
-      setTimeout(() => {
-        if (mapRef.current) {
-          mapRef.current.removeLayer(particle);
-          // Rimuoviamo anche dall'array ref per pulizia memoria (opzionale ma buona pratica)
-          particlesRef.current = particlesRef.current.filter(p => p !== particle);
-        }
-      }, PARTICLE_TTL_MS);
+        // TTL: Decadimento automatico dopo 2 minuti (120000ms)
+        setTimeout(() => {
+          if (mapRef.current) {
+            mapRef.current.removeLayer(particle);
+            particlesRef.current = particlesRef.current.filter(p => p !== particle);
+          }
+        }, 120000);
+      }
     }
 
-    // --- C. AGGIORNAMENTO PATH (STORICO) ---
-    // Manteniamo la linea per continuità visiva, ma le particelle danno il dettaglio della qualità
+    // Aggiorna ultima posizione conosciuta
+    lastPositionRef.current = { lat: effectiveLat, lng: effectiveLng };
+
+    // --- C. PATH STORICO (Optional, tenuto leggero) ---
+    // Nota: Usiamo la history delle props per coerenza, ma potremmo usare anche i punti locali
     const pathCoords = history
       .filter(d => d.lat && d.lng)
       .map(d => [d.lat!, d.lng!] as [number, number]);
@@ -187,83 +212,77 @@ const MapSection = ({ currentData, history, isConnected }: MapSectionProps) => {
         pathRef.current.setLatLngs(pathCoords);
       } else {
         pathRef.current = L.polyline(pathCoords, {
-          color: 'rgba(255, 255, 255, 0.2)', // Molto sottile e trasparente, focus sulle particelle
+          color: 'rgba(255, 255, 255, 0.15)',
           weight: 2,
-          dashArray: '4, 8', // Tratteggiata per sembrare "tecnica"
-          opacity: 0.5,
-          smoothFactor: 1
+          dashArray: '5, 10',
+          opacity: 0.5
         }).addTo(mapRef.current);
       }
     }
 
-    // Pan fluido alla posizione corrente
-    mapRef.current.panTo([lat, lng], { animate: true, duration: 1.0 });
+    // Pan fluido
+    mapRef.current.panTo([effectiveLat, effectiveLng], { animate: true, duration: 1.0 });
 
-  }, [currentData, history, mapReady]);
+  }, [currentData, history, mapReady, usingGPS]); // Aggiunto usingGPS alle dependency
 
-  // Gestione animazione pulse separata (più leggera)
+  // Animazione Pulse (Leggera)
   useEffect(() => {
     if (!mapReady) return;
-    
     let frameId: number;
     let start = performance.now();
-    
     const animate = (time: number) => {
-      const elapsed = time - start;
-      const cycle = 2000; // 2 secondi per ciclo
-      const progress = (elapsed % cycle) / cycle;
-      
+      const progress = ((time - start) % 2000) / 2000;
       if (pulseMarkerRef.current) {
-        // Scala raggio da 8 a 25
-        const currentRadius = 8 + (progress * 17);
-        // Opacità da 0.4 a 0
-        const currentOpacity = 0.4 * (1 - progress);
-        
-        pulseMarkerRef.current.setRadius(currentRadius);
-        pulseMarkerRef.current.setStyle({ fillOpacity: currentOpacity });
+        pulseMarkerRef.current.setRadius(8 + (progress * 20));
+        pulseMarkerRef.current.setStyle({ fillOpacity: 0.4 * (1 - progress) });
       }
       frameId = requestAnimationFrame(animate);
     };
-
     frameId = requestAnimationFrame(animate);
     return () => cancelAnimationFrame(frameId);
   }, [mapReady]);
 
   return (
     <motion.div
-      className="map-container bg-card border border-border rounded-xl overflow-hidden shadow-sm"
+      className="map-container bg-card border border-border rounded-xl overflow-hidden shadow-sm relative"
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4 }}
     >
-      {/* Header Tecnico */}
-      <div className="p-4 border-b border-border flex items-center justify-between bg-card/50 backdrop-blur-sm">
+      {/* --- HEADER TECNICO --- */}
+      <div className="p-4 border-b border-border flex items-center justify-between bg-card/50 backdrop-blur-sm z-10 relative">
         <div className="flex items-center gap-3">
           <div className="p-2 rounded-lg bg-primary/10 border border-primary/20">
             <MapPin className="w-5 h-5 text-primary" />
           </div>
           <div>
-            <h2 className="font-semibold text-sm uppercase tracking-wider text-muted-foreground">Live Tracking</h2>
+            <h2 className="font-semibold text-sm uppercase tracking-wider text-muted-foreground">Live Monitor</h2>
             <div className="flex items-center gap-2">
-                <span className="text-xs font-mono text-foreground">
-                    SAMPLES: {history.length}
-                </span>
+                {/* Indicatore Sorgente Dati */}
+                {usingGPS ? (
+                   <span className="text-[10px] font-mono text-green-400 flex items-center gap-1">
+                     <Satellite className="w-3 h-3" /> GPS LOCKED
+                   </span>
+                ) : (
+                   <span className="text-[10px] font-mono text-yellow-500/80 flex items-center gap-1">
+                     <Radio className="w-3 h-3" /> SENSOR LINK
+                   </span>
+                )}
             </div>
           </div>
         </div>
         
         <div className="flex items-center gap-3">
-          {/* Status Indicator */}
           <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full border ${
-            isConnected 
-              ? 'bg-green-500/10 border-green-500/20 text-green-500' 
-              : 'bg-red-500/10 border-red-500/20 text-red-500'
+            isConnected ? 'bg-green-500/10 border-green-500/20 text-green-500' : 'bg-red-500/10 border-red-500/20 text-red-500'
           }`}>
-            <Radio className={`w-3 h-3 ${isConnected ? 'animate-pulse' : ''}`} />
-            <span className="text-xs font-bold">{isConnected ? 'ONLINE' : 'OFFLINE'}</span>
+            <span className="relative flex h-2 w-2">
+              <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${isConnected ? 'bg-green-400' : 'bg-red-400'}`}></span>
+              <span className={`relative inline-flex rounded-full h-2 w-2 ${isConnected ? 'bg-green-500' : 'bg-red-500'}`}></span>
+            </span>
+            <span className="text-xs font-bold">{isConnected ? 'LIVE' : 'OFF'}</span>
           </div>
           
-          {/* AQI Badge */}
           <div className={`px-3 py-1.5 rounded-full border ${airQuality.badgeClass} flex items-center gap-2`}>
             <Wind className="w-3 h-3" />
             <span className="text-xs font-bold">{airQuality.label}</span>
@@ -271,25 +290,39 @@ const MapSection = ({ currentData, history, isConnected }: MapSectionProps) => {
         </div>
       </div>
 
-      {/* Map Container */}
+      {/* --- MAPPA --- */}
       <div className="relative group">
         <div ref={mapContainerRef} className="h-[400px] lg:h-[500px] w-full z-0" />
         
-        {/* Overlay Dati Tecnici (HUD style) */}
+        {/* --- HUD OVERLAY (Cyberpunk Style) --- */}
         <div className="absolute bottom-4 left-4 right-4 z-[400] grid grid-cols-3 gap-2 pointer-events-none">
-            <div className="bg-black/80 backdrop-blur-md border border-white/10 p-2 rounded-lg text-center">
-                <div className="text-[10px] text-gray-400 uppercase">Latitudine</div>
-                <div className="font-mono text-xs text-white">{currentData.lat?.toFixed(5) || 'N/A'}</div>
+            {/* Latitudine */}
+            <div className="bg-black/80 backdrop-blur-md border border-white/10 p-2 rounded-lg text-center shadow-lg">
+                <div className="text-[9px] text-gray-400 uppercase tracking-widest mb-1">LAT</div>
+                <div className="font-mono text-xs text-white">
+                  {(gpsAvailableRef.current && gpsCoordsRef.current ? gpsCoordsRef.current.lat : currentData.lat)?.toFixed(5) || '--'}
+                </div>
             </div>
-            <div className="bg-black/80 backdrop-blur-md border border-white/10 p-2 rounded-lg text-center">
-                <div className="text-[10px] text-gray-400 uppercase">Longitudine</div>
-                <div className="font-mono text-xs text-white">{currentData.lng?.toFixed(5) || 'N/A'}</div>
+            {/* Longitudine */}
+            <div className="bg-black/80 backdrop-blur-md border border-white/10 p-2 rounded-lg text-center shadow-lg">
+                <div className="text-[9px] text-gray-400 uppercase tracking-widest mb-1">LON</div>
+                <div className="font-mono text-xs text-white">
+                  {(gpsAvailableRef.current && gpsCoordsRef.current ? gpsCoordsRef.current.lng : currentData.lng)?.toFixed(5) || '--'}
+                </div>
             </div>
-            <div className="bg-black/80 backdrop-blur-md border border-white/10 p-2 rounded-lg text-center">
-                <div className="text-[10px] text-gray-400 uppercase">Particelle</div>
-                <div className="font-mono text-xs text-primary">{particlesRef.current.length} ACTV</div>
+            {/* Particles Count */}
+            <div className="bg-black/80 backdrop-blur-md border border-white/10 p-2 rounded-lg text-center shadow-lg">
+                <div className="text-[9px] text-gray-400 uppercase tracking-widest mb-1">SAMPLES</div>
+                <div className="font-mono text-xs text-primary">{particlesRef.current.length} <span className="text-[9px] text-muted-foreground">/ 2m</span></div>
             </div>
         </div>
+
+        {/* GPS Warning Overlay (se richiesto ma non disponibile) */}
+        {!usingGPS && !isConnected && (
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-red-500/90 text-white text-[10px] px-3 py-1 rounded-full z-[500] backdrop-blur font-bold">
+                NO SIGNAL SOURCE
+            </div>
+        )}
       </div>
     </motion.div>
   );
