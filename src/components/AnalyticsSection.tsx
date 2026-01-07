@@ -24,7 +24,7 @@ interface AnalyticsSectionProps {
 const AnalyticsSection = ({ history, currentData }: AnalyticsSectionProps) => {
   const chartData = useMemo(() => {
     return history.slice(-30).map((d, i) => ({
-      time: format(new Date(d.timestamp), 'HH:mm'),,
+      time: format(d.timestamp, 'HH:mm'),
       pm25: d.pm25,
       pm10: d.pm10,
       index: i
