@@ -18,7 +18,7 @@ function Graph({ data }) {
 function processGraphData(data) {
     return data.map(entry => ({
         ...entry,
-        formattedTime: formatTimestamp(entry.timestamp, 'Europe/Rome'),
+        formattedTime: formatTimestamp(entry.timestamp, 'Europe/Rome'), // Corregge il fuso orario
     }));
 }
 
