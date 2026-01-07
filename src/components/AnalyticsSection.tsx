@@ -21,14 +21,29 @@ interface AnalyticsSectionProps {
   currentData: SensorData;
 }
 
+// Funzione per normalizzare timestamp
+const parseDate = (ts: number | string | Date) => {
+  if (!ts) return new Date();
+  if (ts instanceof Date) return ts;
+  if (typeof ts === 'number') {
+    // Se < 100000000000 → secondi, altrimenti millisecondi
+    return ts < 100000000000 ? new Date(ts * 1000) : new Date(ts);
+  }
+  return new Date(ts); // stringa ISO
+};
+
 const AnalyticsSection = ({ history, currentData }: AnalyticsSectionProps) => {
   const chartData = useMemo(() => {
-    return history.slice(-30).map((d, i) => ({
-      time: format(d.timestamp, 'HH:mm'),
-      pm25: d.pm25,
-      pm10: d.pm10,
-      index: i
-    }));
+    return history.slice(-30).map((d, i) => {
+      const dateObj = parseDate(d.timestamp);
+      return {
+        time: format(dateObj, 'HH:mm'),                // Solo ore:minuti per l'asse X
+        fullDate: format(dateObj, "d MMM yyyy HH:mm:ss"), // Tooltip completo
+        pm25: d.pm25,
+        pm10: d.pm10,
+        index: i
+      };
+    });
   }, [history]);
 
   const averages = useMemo(() => {
@@ -128,11 +143,22 @@ const AnalyticsSection = ({ history, currentData }: AnalyticsSectionProps) => {
               domain={[0, 'auto']}
             />
             <Tooltip
-              contentStyle={{
-                backgroundColor: 'hsl(var(--card))',
-                border: '1px solid hsl(var(--border))',
-                borderRadius: '0.75rem',
-                boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)'
+              content={({ active, payload }) => {
+                if (active && payload && payload.length) {
+                  return (
+                    <div className="p-3 border rounded-xl bg-card border-border shadow-xl">
+                      <p className="mb-2 text-sm font-medium text-foreground">
+                        {payload[0].payload.fullDate}
+                      </p>
+                      {payload.map((entry, idx) => (
+                        <p key={idx} className="text-sm" style={{ color: entry.color }}>
+                          {entry.name}: <span className="font-bold">{entry.value}</span> µg/m³
+                        </p>
+                      ))}
+                    </div>
+                  );
+                }
+                return null;
               }}
               labelStyle={{ color: 'hsl(var(--foreground))' }}
             />
