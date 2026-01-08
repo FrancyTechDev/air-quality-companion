@@ -14,6 +14,7 @@ import {
 import { Sparkles, TrendingUp, TrendingDown, Minus, AlertCircle } from 'lucide-react';
 import { SensorData } from '@/lib/airQuality';
 import { generatePredictions, PredictionResult } from '@/lib/aiPrediction';
+import { format } from 'date-fns';
 
 interface ForecastSectionProps {
   history: SensorData[];
@@ -27,28 +28,35 @@ const ForecastSection = ({ history, currentData }: ForecastSectionProps) => {
 
   const chartData = useMemo(() => {
     // Get last 10 historical points
-    const historicalData = history.slice(-10).map((d, i) => ({
-      hour: `${-10 + i}h`,
-      pm25: d.pm25,
-      pm10: d.pm10,
-      type: 'historical'
-    }));
+    const historicalData = history.slice(-10).map((d, i) => {
+      const date = d.timestamp instanceof Date ? d.timestamp : new Date(d.timestamp);
+      return {
+        hour: format(date, 'HH:mm'),
+        pm25: d.pm25,
+        pm10: d.pm10,
+        type: 'historical'
+      };
+    });
 
     // Add current point
+    const currentDate = currentData.timestamp instanceof Date ? currentData.timestamp : new Date(currentData.timestamp);
     const currentPoint = {
-      hour: 'Ora',
+      hour: format(currentDate, 'HH:mm'),
       pm25: currentData.pm25,
       pm10: currentData.pm10,
       type: 'current'
     };
 
     // Add predictions
-    const predictionData = predictions.pm25Predictions.map((p, i) => ({
-      hour: `+${p.hour}h`,
-      pm25Prediction: p.value,
-      pm10Prediction: predictions.pm10Predictions[i]?.value,
-      type: 'prediction'
-    }));
+    const predictionData = predictions.pm25Predictions.map((p, i) => {
+      const predDate = new Date(currentDate.getTime() + p.hour * 60 * 60 * 1000);
+      return {
+        hour: format(predDate, 'HH:mm'),
+        pm25Prediction: p.value,
+        pm10Prediction: predictions.pm10Predictions[i]?.value,
+        type: 'prediction'
+      };
+    });
 
     return [...historicalData, currentPoint, ...predictionData];
   }, [history, currentData, predictions]);

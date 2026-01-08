@@ -12,36 +12,55 @@ import {
   AreaChart,
   Legend
 } from 'recharts';
-import { BarChart3, TrendingUp, Clock } from 'lucide-react';
+import { BarChart3, TrendingUp, Clock, Download } from 'lucide-react';
 import { SensorData, getAirQualityInfo } from '@/lib/airQuality';
 import { format } from 'date-fns';
+import { Button } from '@/components/ui/button';
 
 interface AnalyticsSectionProps {
   history: SensorData[];
   currentData: SensorData;
 }
 
-// Funzione per normalizzare timestamp
-const parseDate = (ts: number | string | Date) => {
-  if (!ts) return new Date();
-  if (ts instanceof Date) return ts;
-  if (typeof ts === 'number') {
-    // Se < 100000000000 → secondi, altrimenti millisecondi
-    return ts < 100000000000 ? new Date(ts * 1000) : new Date(ts);
-  }
-  return new Date(ts); // stringa ISO
-};
-
 const AnalyticsSection = ({ history, currentData }: AnalyticsSectionProps) => {
   const chartData = useMemo(() => {
-    return history.slice(-30).map((d, i) => ({
-      time: i + 1,   // punto 1, 2, 3, ...
-      pm25: d.pm25,
-      pm10: d.pm10
-    }));
+    return history.slice(-30).map((d) => {
+      const date = d.timestamp instanceof Date ? d.timestamp : new Date(d.timestamp);
+      return {
+        time: format(date, 'HH:mm:ss'),
+        fullDate: format(date, 'dd/MM/yyyy HH:mm:ss'),
+        pm25: d.pm25,
+        pm10: d.pm10
+      };
+    });
   }, [history]);
 
+  const downloadCSV = () => {
+    if (history.length === 0) return;
 
+    const headers = ['Data e Ora', 'PM2.5 (ug/m3)', 'PM10 (ug/m3)', 'Latitudine', 'Longitudine'];
+    const rows = history.map(d => {
+      const date = d.timestamp instanceof Date ? d.timestamp : new Date(d.timestamp);
+      return [
+        format(date, 'dd/MM/yyyy HH:mm:ss'),
+        d.pm25,
+        d.pm10,
+        d.lat || '',
+        d.lng || ''
+      ].join(',');
+    });
+
+    const csvContent = [headers.join(','), ...rows].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `air_quality_history_${format(new Date(), 'yyyyMMdd_HHmmss')}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   const averages = useMemo(() => {
     if (history.length === 0) return { pm25: 0, pm10: 0 };
@@ -65,14 +84,25 @@ const AnalyticsSection = ({ history, currentData }: AnalyticsSectionProps) => {
       transition={{ duration: 0.5 }}
     >
       {/* Header */}
-      <div className="flex items-center gap-3">
-        <div className="p-3 rounded-2xl bg-primary/10">
-          <BarChart3 className="w-6 h-6 text-primary" />
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="p-3 rounded-2xl bg-primary/10">
+            <BarChart3 className="w-6 h-6 text-primary" />
+          </div>
+          <div>
+            <h2 className="text-xl font-semibold text-gradient">Analytics Dashboard</h2>
+            <p className="text-sm text-muted-foreground">Analisi storica della qualità dell'aria</p>
+          </div>
         </div>
-        <div>
-          <h2 className="text-xl font-semibold text-gradient">Analytics Dashboard</h2>
-          <p className="text-sm text-muted-foreground">Analisi storica della qualità dell'aria</p>
-        </div>
+        <Button 
+          onClick={downloadCSV}
+          variant="outline" 
+          className="gap-2 hover-elevate"
+          disabled={history.length === 0}
+        >
+          <Download className="w-4 h-4" />
+          Esporta CSV
+        </Button>
       </div>
 
       {/* Stats Row */}
