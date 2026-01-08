@@ -97,7 +97,7 @@ export const calculateNeuroHealthRisk = (history: SensorData[]): NeuroHealthRisk
   const aboveThreshold = history.filter(d => d.pm25 > threshold).length;
   const timeAboveThreshold = (aboveThreshold / history.length) * 100;
   
-  const cumulativeExposure = history.reduce((acc, d) => acc + d.pm25, 0) / history.length;
+  const cumulativeExposure = history.length > 0 ? history.reduce((acc, d) => acc + d.pm25, 0) / history.length : 0;
   
   let level: NeuroHealthRisk['level'];
   let percentage: number;

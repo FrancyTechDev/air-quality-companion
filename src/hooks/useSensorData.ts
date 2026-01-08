@@ -69,6 +69,7 @@ export const useSensorData = () => {
 
     // Ascolta l'evento 'new-data' emesso dal backend quando l'ESP32 invia dati
     socketRef.current.on('new-data', (payload: any) => {
+      console.log("Dato real-time ricevuto:", payload);
       const newData: SensorData = {
         pm25: Number(payload.pm25),
         pm10: Number(payload.pm10),
